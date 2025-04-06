@@ -14,12 +14,15 @@ from langchain.prompts import PromptTemplate
 import uuid
 from data_ingestion import pdfProcess
 import re
+from mcq_agent import MCQAgent
+from fitb_agent import FillInTheBlankAgent
 app = Flask(__name__)
 CORS(app)
 folder_path = "db"
 device = torch.device('cpu')
 
-
+mcq_agent = MCQAgent()
+fitb_agent = FillInTheBlankAgent()
 
 checkpoint = "MBZUAI/LaMini-T5-738M"
 tokenizer = AutoTokenizer.from_pretrained(checkpoint)
@@ -314,6 +317,85 @@ def generate_questions():
         cleaned_questions.append(q)
 
     return jsonify({"questions": cleaned_questions})
+    
+@app.route("/api/documents/generate_mcq", methods=["POST"])
+def generate_mcq():
+    json_content = request.json
+    asset_id = json_content.get("asset_id")
+
+    if not asset_id:
+        return jsonify({"error": "asset_id is required"}), 400
+
+    # Load the vector store for the given asset_id
+    try:
+        vector_store = Chroma(
+            persist_directory=f"{folder_path}/{asset_id}",
+            embedding_function=embedding
+        )
+    except Exception as e:
+        return jsonify({"error": "Could not load vector store", "details": str(e)}), 500
+
+    # Access the underlying Chroma collection
+    try:
+        collection = vector_store._collection
+        results = collection.get(include=["documents", "metadatas"])
+        docs = results.get("documents", [])
+        metadatas = results.get("metadatas", [])
+    except Exception as e:
+        return jsonify({"error": "Could not retrieve documents", "details": str(e)}), 500
+
+    if not docs:
+        return jsonify({"error": "No documents found for the provided asset_id"}), 404
+
+    # Concatenate all document contents
+    full_text = "\n".join(docs)
+
+    # Generate MCQs using the MCQAgent
+    try:
+        mcq_questions = mcq_agent.generate_mcq(full_text)
+    except Exception as e:
+        return jsonify({"error": "MCQ generation failed", "details": str(e)}), 500
+
+    return jsonify({"questions": mcq_questions})
+@app.route("/api/documents/generate_fitb", methods=["POST"])
+def generate_fill_in_the_blank():
+    json_content = request.json
+    asset_id = json_content.get("asset_id")
+
+    if not asset_id:
+        return jsonify({"error": "asset_id is required"}), 400
+
+    # Load the vector store for the given asset_id
+    try:
+        vector_store = Chroma(
+            persist_directory=f"{folder_path}/{asset_id}",
+            embedding_function=embedding
+        )
+    except Exception as e:
+        return jsonify({"error": "Could not load vector store", "details": str(e)}), 500
+
+    # Access the underlying Chroma collection
+    try:
+        collection = vector_store._collection
+        results = collection.get(include=["documents", "metadatas"])
+        docs = results.get("documents", [])
+        metadatas = results.get("metadatas", [])
+    except Exception as e:
+        return jsonify({"error": "Could not retrieve documents", "details": str(e)}), 500
+
+    if not docs:
+        return jsonify({"error": "No documents found for the provided asset_id"}), 404
+
+    # Concatenate all document contents
+    full_text = "\n".join(docs)
+
+    # Generate Fill-in-the-Blank questions using the FillInTheBlankAgent
+    try:
+        fill_in_the_blank_questions = fitb_agent.generate_fill_in_the_blank(full_text)
+    except Exception as e:
+        return jsonify({"error": "Fill-in-the-blank generation failed", "details": str(e)}), 500
+
+    return jsonify({"questions": fill_in_the_blank_questions})
 def start_app():
     app.run(host="0.0.0.0", port=8080, debug=True)
 

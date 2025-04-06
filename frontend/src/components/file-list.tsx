@@ -1,12 +1,17 @@
 // components/file-list.tsx
 import React from 'react';
-import { FileText, X } from 'lucide-react';
-import { Button } from './ui/button';
+import { Card } from './ui/card';
+import { FileText } from 'lucide-react';
+
+interface Question {
+  type: string;
+  text: string;
+}
 
 interface FileWithPreview extends File {
   preview?: string;
   asset_id?: string;
-  questions?: string[];
+  questions?: Question[];
 }
 
 interface FileListProps {
@@ -19,39 +24,26 @@ const FileList: React.FC<FileListProps> = ({ files, onRemove }) => {
 
   return (
     <div className="space-y-2">
-      <h3 className="font-medium">Uploaded Files</h3>
-      <div className="space-y-2">
-        {files.map((file, index) => (
-          <div key={index} className="flex items-center justify-between p-2 border rounded-lg">
-            <div className="flex items-center space-x-2">
-              {file.preview ? (
-                <img
-                  src={file.preview}
-                  alt={`Preview of ${file.name}`}
-                  className="h-10 w-10 object-cover rounded"
-                />
-              ) : (
-                <FileText className="h-10 w-10 text-muted-foreground" />
+      <h3 className="font-medium mb-2">Uploaded Files</h3>
+      {files.map((file, index) => (
+        <Card key={index} className="p-4 flex justify-between items-center">
+          <div className="flex items-center space-x-3">
+            <FileText className="h-5 w-5 text-gray-500" />
+            <div>
+              <p className="text-sm font-medium">{file.name}</p>
+              {file.asset_id && (
+                <p className="text-xs text-gray-500">Asset ID: {file.asset_id}</p>
               )}
-              <div>
-                <span className="text-sm truncate max-w-[200px]">{file.name}</span>
-                {file.asset_id && (
-                  <p className="text-xs text-gray-500">Asset ID: {file.asset_id}</p>
-                )}
-              </div>
             </div>
-            <Button
-              variant="ghost"
-              size="icon"
-              onClick={() => onRemove(file)}
-              aria-label={`Remove ${file.name}`}
-              disabled={file.asset_id !== undefined} // Prevent removal after upload
-            >
-              <X className="h-4 w-4" />
-            </Button>
           </div>
-        ))}
-      </div>
+          <button
+            onClick={() => onRemove(file)}
+            className="text-red-500 hover:text-red-700 text-sm font-medium"
+          >
+            Remove
+          </button>
+        </Card>
+      ))}
     </div>
   );
 };
