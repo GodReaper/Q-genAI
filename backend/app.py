@@ -16,6 +16,8 @@ from data_ingestion import pdfProcess
 import re
 from mcq_agent import MCQAgent
 from fitb_agent import FillInTheBlankAgent
+from bloom_taxonomy_agent import BloomTaxonomyAgent
+
 app = Flask(__name__)
 CORS(app)
 folder_path = "db"
@@ -23,24 +25,24 @@ device = torch.device('cpu')
 
 mcq_agent = MCQAgent()
 fitb_agent = FillInTheBlankAgent()
+bloom_agent = BloomTaxonomyAgent()
+# checkpoint = "MBZUAI/LaMini-T5-738M"
+# tokenizer = AutoTokenizer.from_pretrained(checkpoint)
+# base_model = AutoModelForSeq2SeqLM.from_pretrained(checkpoint, torch_dtype=torch.float32)
 
-checkpoint = "MBZUAI/LaMini-T5-738M"
-tokenizer = AutoTokenizer.from_pretrained(checkpoint)
-base_model = AutoModelForSeq2SeqLM.from_pretrained(checkpoint, torch_dtype=torch.float32)
-
-def llm_pipeline():
-    pipe = pipeline(
-        'text2text-generation',
-        model=base_model,
-        tokenizer=tokenizer,
-        max_length=256,
-        do_sample=True,
-        temperature=0.3,
-        top_p=0.95
+# def llm_pipeline():
+#     pipe = pipeline(
+#         'text2text-generation',
+#         model=base_model,
+#         tokenizer=tokenizer,
+#         max_length=256,
+#         do_sample=True,
+#         temperature=0.3,
+#         top_p=0.95
        
-    )
-    local_llm = HuggingFacePipeline(pipeline=pipe)
-    return local_llm
+#     )
+#     local_llm = HuggingFacePipeline(pipeline=pipe)
+#     return local_llm
 
 cached_llm = Ollama(model="llama3")
 
@@ -151,6 +153,39 @@ def get_chat_history(chat_thread_id):
     conn.close()
     
     return result
+
+def generate_btl_question_by_level(level):
+    json_content = request.json
+    asset_id = json_content.get("asset_id")
+
+    if not asset_id:
+        return jsonify({"error": "asset_id is required"}), 400
+
+    try:
+        vector_store = Chroma(
+            persist_directory=f"{folder_path}/{asset_id}",
+            embedding_function=embedding
+        )
+        collection = vector_store._collection
+        results = collection.get(include=["documents"])
+        docs = results.get("documents", [])
+    except Exception as e:
+        return jsonify({"error": "Could not load documents", "details": str(e)}), 500
+
+    if not docs:
+        return jsonify({"error": "No documents found"}), 404
+
+    full_text = "\n".join(docs)
+
+    try:
+        questions = bloom_agent.generate_btl_question(full_text, level)
+    except Exception as e:
+        return jsonify({"error": f"{level.upper()} generation failed", "details": str(e)}), 500
+
+    questions_list = [q.strip() for q in questions.split("\n") if q.strip()]
+    cleaned_questions = [re.sub(r'^[-•*0-9.\s]+', '', q) for q in questions_list]
+
+    return jsonify({"questions": cleaned_questions})
 
 @app.route("/api/documents/process", methods=["POST"])
 def pdfPost():
@@ -396,6 +431,27 @@ def generate_fill_in_the_blank():
         return jsonify({"error": "Fill-in-the-blank generation failed", "details": str(e)}), 500
 
     return jsonify({"questions": fill_in_the_blank_questions})
+
+@app.route("/api/generate/btl1", methods=["POST"])
+def generate_btl1():
+    return generate_btl_question_by_level("btl1")
+
+@app.route("/api/generate/btl2", methods=["POST"])
+def generate_btl2():
+    return generate_btl_question_by_level("btl2")
+
+@app.route("/api/generate/btl3", methods=["POST"])
+def generate_btl3():
+    return generate_btl_question_by_level("btl3")
+
+@app.route("/api/generate/btl4", methods=["POST"])
+def generate_btl4():
+    return generate_btl_question_by_level("btl4")
+
+@app.route("/api/generate/btl5", methods=["POST"])
+def generate_btl5():
+    return generate_btl_question_by_level("btl5")
+
 def start_app():
     app.run(host="0.0.0.0", port=8080, debug=True)
 

@@ -14,6 +14,7 @@ import {
   SelectValue,
 } from './components/ui/select';
 import { cn } from './lib/utils';
+import { generateBTLQuestions } from './lib/btl-generator';
 
 interface Question {
   type: string;
@@ -27,6 +28,8 @@ interface FileWithPreview extends File {
 }
 
 type QuestionType = 'general' | 'mcq' | 'fitb';
+type QuestionCategory = 'general' | 'bloom_taxonomy';
+type BTLLevel = 'l1' | 'l2' | 'l3' | 'l4' | 'l5';
 
 interface FITBQuestion {
   sentence: string;
@@ -38,6 +41,8 @@ const App: React.FC = () => {
   const [loading, setLoading] = useState<boolean>(false);
   const [error, setError] = useState<string | null>(null);
   const [selectedAgent, setSelectedAgent] = useState<QuestionType>('general');
+  const [selectedCategory, setSelectedCategory] = useState<QuestionCategory>('general');
+  const [selectedBTLLevel, setSelectedBTLLevel] = useState<BTLLevel | null>(null);
 
   // Handle file selection and upload
   const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -103,8 +108,13 @@ const App: React.FC = () => {
   }, [files]);
 
   // Get the API endpoint based on selected agent
-  const getApiEndpoint = (agent: QuestionType) => {
-    switch (agent) {
+  const getApiEndpoint = () => {
+    if (selectedCategory === 'bloom_taxonomy') {
+      if (!selectedBTLLevel) throw new Error('Please select a Bloom Taxonomy level');
+      return `btl${selectedBTLLevel.replace('l', '')}`;
+    }
+  
+    switch (selectedAgent) {
       case 'mcq':
         return 'generate_mcq';
       case 'fitb':
@@ -113,26 +123,31 @@ const App: React.FC = () => {
         return 'generate_questions';
     }
   };
-
   // Handle Generate Questions
   const handleGenerate = async () => {
     setLoading(true);
     setError(null);
     try {
-      const endpoint = getApiEndpoint(selectedAgent);
+      const endpoint = getApiEndpoint();
       const generatePromises = files.map(async (file) => {
         if (!file.asset_id) {
           throw new Error(`Missing asset_id for file: ${file.name}`);
         }
-
-        const response = await axios.post(
-          `${import.meta.env.VITE_API_URL}/api/documents/${endpoint}`,
-          {
-            asset_id: file.asset_id,
+        let questions;
+        if (selectedCategory === 'bloom_taxonomy') {
+          if (!selectedBTLLevel) {
+            throw new Error('Please select a Bloom Taxonomy level');
           }
-        );
-
-        let questions = response.data.questions;
+          questions = await generateBTLQuestions(`btl${selectedBTLLevel.replace('l', '')}`, file.asset_id);
+        } else {
+          const response = await axios.post(
+            `${import.meta.env.VITE_API_URL}/api/documents/${endpoint}`,
+            {
+              asset_id: file.asset_id,
+            }
+          );
+          questions = response.data.questions;
+        }
 
         // Process the questions based on the agent type
         if (selectedAgent === 'general') {
@@ -250,17 +265,57 @@ const App: React.FC = () => {
           <div className="space-y-4">
             <FileUploader onFileSelect={handleFileChange} disabled={loading} />
             <FileList files={files} onRemove={removeFile} />
-            <Select value={selectedAgent} onValueChange={(value: QuestionType) => setSelectedAgent(value)}>
-              <SelectTrigger>
-                <SelectValue placeholder="Select question type" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="general">General Questions</SelectItem>
-                <SelectItem value="mcq">Multiple Choice Questions</SelectItem>
-                <SelectItem value="fitb">Fill in the Blank</SelectItem>
-              </SelectContent>
-            </Select>
-          </div>
+            <Select
+    value={selectedCategory}
+    onValueChange={(value: QuestionCategory) => {
+      setSelectedCategory(value);
+      // Reset type/level selections
+      setSelectedAgent('general');
+      setSelectedBTLLevel(null);
+    }}
+  >
+    <SelectTrigger>
+      <SelectValue placeholder="Select question category" />
+    </SelectTrigger>
+    <SelectContent>
+      <SelectItem value="general">General Questions</SelectItem>
+      <SelectItem value="bloom_taxonomy">Bloom Taxonomy Questions</SelectItem>
+    </SelectContent>
+  </Select>
+
+  {/* Conditional rendering based on category */}
+  {selectedCategory === 'general' ? (
+    <Select
+      value={selectedAgent}
+      onValueChange={(value: QuestionType) => setSelectedAgent(value)}
+    >
+      <SelectTrigger>
+        <SelectValue placeholder="Select question type" />
+      </SelectTrigger>
+      <SelectContent>
+        <SelectItem value="mcq">Multiple Choice Questions</SelectItem>
+        <SelectItem value="fitb">Fill in the Blank</SelectItem>
+        <SelectItem value="general">General Questions</SelectItem>
+      </SelectContent>
+    </Select>
+  ) : (
+    <div className="flex flex-row gap-2">
+      {(['l1', 'l2', 'l3', 'l4', 'l5'] as const).map((level) => (
+        <label key={level} className="flex items-center gap-2">
+          <input
+            type="radio"
+            name="btl-level"
+            value={level}
+            checked={selectedBTLLevel === level}
+            onChange={() => setSelectedBTLLevel(level)}
+            className="accent-blue-600"
+          />
+          <span className="capitalize">{level}</span>
+        </label>
+      ))}
+    </div>
+  )}
+</div>
           <Button
             className="w-full"
             onClick={handleGenerate}
